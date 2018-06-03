@@ -499,7 +499,7 @@ func TestCanRetry(t *testing.T) {
 	if retry == false {
 		t.Error("can try = false, expected true")
 	}
-	retry = my.CanRetry(my.ErrReadOnly)ErrReadOnly)
+	retry = my.CanRetry(my.ErrReadOnly)
 	if retry == false {
 		t.Error("can try = false, expected true")
 	}
