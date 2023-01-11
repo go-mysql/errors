@@ -503,4 +503,79 @@ func TestCanRetry(t *testing.T) {
 	if retry == false {
 		t.Error("can try = false, expected true")
 	}
+	retry = my.CanRetry(my.ErrLockWaitTimeout)
+	if retry == false {
+		t.Error("can try = false, expected true")
+	}
+}
+
+func TestLockWaitTimeout(t *testing.T) {
+	setup(t)
+
+	// Make a connection as usual
+	db := newDB(t, defaultDSN)
+	ctx := context.TODO()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if conn == nil {
+		t.Fatal("got nil conn, expected it to be set")
+	}
+	defer conn.Close()
+
+	// Make sure to lower timeouts.
+	_, err = conn.ExecContext(ctx, "SET GLOBAL innodb_lock_wait_timeout = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a table with no data.
+	_, err = conn.ExecContext(ctx, "CREATE TABLE test.lock_wait_timeout (id INT NOT NULL PRIMARY KEY, col1 varchar(255))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.ExecContext(ctx, "INSERT INTO test.lock_wait_timeout VALUES (1, 'test')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS test.lock_wait_timeout")
+		if err != nil {
+			t.Errorf("cannot drop table test.t: %s", err)
+		}
+	}()
+
+	// lock row 1
+	trx, err := conn.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = trx.Exec("SELECT * FROM test.lock_wait_timeout WHERE id = 1 FOR UPDATE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In another session, try and lock ROW 1
+	// It should timeout.
+	conn2, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn2.Close()
+	_, err = conn2.ExecContext(ctx, "SELECT * FROM test.lock_wait_timeout WHERE id = 1 FOR UPDATE")
+	t.Logf("err: %v", err)
+	ok, myerr := my.Error(err)
+	if !ok {
+		t.Error("MySQL error = false, expected true)")
+	}
+	if myerr != my.ErrLockWaitTimeout {
+		t.Errorf("got error '%v', expected ErrLockWaitTimeout", err)
+	}
+	// Rollback the transaction
+	if err := trx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
 }

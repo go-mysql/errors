@@ -19,25 +19,25 @@
 //
 // Error and CanRetry are the most important functions in this package. They are used like:
 //
-//   import my "github.com/go-mysql/errors"
+//	import my "github.com/go-mysql/errors"
 //
-//   SAVE_ITEM_LOOP:
-//   for tryNo := 1; tryNo <= maxTries; tryNo++ {
-//       if err := SaveItem(item); err != nil {
-//           if ok, myerr := my.Error(err); ok { // MySQL error
-//               if myerr == my.ErrDupeKey {
-//                   return http.StatusConflict
-//               }
-//               if my.CanRetry(myerr) {
-//                   time.Sleep(1 * time.Second)
-//                   continue SAVE_ITEM_LOOP // retry
-//               }
-//           }
-//           // Error not handled
-//           return http.StatusInternalServerError
-//       }
-//       break SAVE_ITEM_LOOP // success
-//   }
+//	SAVE_ITEM_LOOP:
+//	for tryNo := 1; tryNo <= maxTries; tryNo++ {
+//	    if err := SaveItem(item); err != nil {
+//	        if ok, myerr := my.Error(err); ok { // MySQL error
+//	            if myerr == my.ErrDupeKey {
+//	                return http.StatusConflict
+//	            }
+//	            if my.CanRetry(myerr) {
+//	                time.Sleep(1 * time.Second)
+//	                continue SAVE_ITEM_LOOP // retry
+//	            }
+//	        }
+//	        // Error not handled
+//	        return http.StatusInternalServerError
+//	    }
+//	    break SAVE_ITEM_LOOP // success
+//	}
 //
 // The example above tries N-many times to save an item into a database.
 // It handles MySQL errors explicitly. On ErrDupeKey it does not retry, it
@@ -83,6 +83,10 @@ var (
 	// ErrDupeKey is returned when a unique index prevents a value from being
 	// inserted or updated. CanRetry returns false on this error.
 	ErrDupeKey = errors.New("duplicate key value")
+
+	// ErrLockWaitTimeout is returned when innodb_lock_wait_timeout and a lock
+	// could not be acquired. CanRetry returns true on this error.
+	ErrLockWaitTimeout = errors.New("lock wait timeout")
 )
 
 // Error returns an error in this package if possible. The boolean return
@@ -113,6 +117,8 @@ func Error(err error) (bool, error) {
 		return true, ErrReadOnly
 	case 1062: // ER_DUP_ENTRY
 		return true, ErrDupeKey
+	case 1205: // ER_LOCK_WAIT_TIMEOUT
+		return true, ErrLockWaitTimeout
 	}
 
 	// A MySQL error, but not one we handle explicitly
@@ -160,7 +166,7 @@ func MySQLErrorCode(err error) uint16 {
 // It returns false for all other errors, including nil.
 func CanRetry(err error) bool {
 	switch err {
-	case ErrCannotConnect, ErrConnLost, ErrReadOnly, ErrQueryKilled:
+	case ErrCannotConnect, ErrConnLost, ErrReadOnly, ErrQueryKilled, ErrLockWaitTimeout:
 		return true
 	}
 	return false
